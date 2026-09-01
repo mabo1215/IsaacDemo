@@ -386,6 +386,11 @@ venv/
 .pytest_cache/
 third_party/
 
+# ROS 2 workspace build products (source under ros2_ws/src is committed)
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
 ## Regenerable experiment outputs (src/AGENTS.md: "temporary output directory ... src/outputs/")
 src/outputs/
 src/tmp_model/
