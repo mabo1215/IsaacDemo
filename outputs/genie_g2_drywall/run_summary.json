@@ -1,0 +1,28 @@
+{
+  "isaac_sim": "4.5.0",
+  "robot": "AgiBot Genie G2",
+  "genie_sim_asset": "C:\\source\\IsaacDemo\\third_party\\geniesim_assets\\robot\\G2_omnipicker\\robot.usda",
+  "robot_prim": "/World/GenieG2 (official USD in composition layer)",
+  "simulation_robot_prim": "/World/GenieG2Proxy",
+  "g2_physics_variant": "deferred official G2 reference (Windows compatibility pass)",
+  "g2_visibility_during_sim": "proxy only (official high-resolution G2 deferred)",
+  "joint_count": 0,
+  "joint_names": [],
+  "camera_prim": "/World/RenderCamera",
+  "physics": "Isaac Sim PhysX USD collision geometry",
+  "control_model": "deterministic task trajectory + event-model fastener firing",
+  "ros2_runtime": false,
+  "ros2_note": "Genie Sim ROS2 workspace is compiled separately; live Windows G2 bridge is deferred to Isaac Sim 5.1/Linux compatibility pass.",
+  "d415_required": false,
+  "frames_requested": 360,
+  "nails_installed": 6,
+  "installed_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "video_note": "trajectory.csv is rendered by tools/render_evidence_video.py; the exported USD contains the Isaac Sim camera."
+}

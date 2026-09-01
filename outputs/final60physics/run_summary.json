@@ -1,0 +1,11 @@
+{
+  "isaac_sim": "4.5.0",
+  "robot": "fallback humanoid",
+  "ros2_graph": false,
+  "physics": "PhysX USD collision geometry",
+  "event_model": "contact/proximity threshold -> pneumatic nail event",
+  "joint_names": [],
+  "frames_requested": 60,
+  "nails_installed": 0,
+  "installed_indices": []
+}
