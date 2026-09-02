@@ -1,33 +1,40 @@
-# Genie Sim + AgiBot Genie G2 石膏板安装 Demo
+# Genie Sim + AgiBot Genie G2 石膏板安装仿真
 
-本目录已经加入官方 Genie Sim G2 资产的接入路径。默认不需要 D415：任务使用 Isaac Sim 的 PhysX 场景和轨迹控制，视频使用轨迹生成确定性演示画面；导出的 USD 组合层包含官方 G2 USD 和 Isaac Sim 相机。
+当前有效结果由 vGPU 3090 上的 Linux + Isaac Sim 5.1 生成。任务直接加载官方
+`G2_omnipicker/robot.usda`，使用 Isaac Sim RTX/Replicator 输出原生 RGB 帧；本阶段不依赖
+RealSense D415。
 
-## 运行
+## 本地有效输出
 
-在 `C:\source\IsaacDemo` PowerShell 中执行：
+- `outputs/demo/genie_g2_official_drywall_installation.mp4`：600 帧、30 FPS、20 秒 H.264 视频。
+- `outputs/demo/g2_official_drywall/run_summary.json`：vGPU 运行摘要，记录官方 G2 和 46 个关节初始化。
+- `outputs/demo/g2_official_drywall/trajectory.csv`：石膏板、工具和 6 个固定点事件轨迹。
+- `outputs/demo/g2_official_drywall/genie_g2_official_drywall.usd`：vGPU 导出的任务 USD。
+- `outputs/demo/g2_official_smoke/rgb_0000.png`：官方 G2 单帧加载/渲染检查。
+
+## vGPU 运行与同步
+
+远端渲染输出应写入：
+`/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_final`。
+在本地仓库 PowerShell 中同步摘要、轨迹和任务 USD：
 
 ```powershell
-.\scripts\run_genie_g2_demo.ps1
+.\scripts\sync_vgpu_outputs.ps1 -IncludeTaskUsd
 ```
 
-可选参数：
+需要把 PNG 帧拉回本地并重新编码视频时使用：
 
 ```powershell
-.\scripts\run_genie_g2_demo.ps1 -Frames 360 -OutputDir outputs\genie_g2_drywall
+.\scripts\sync_vgpu_outputs.ps1 -IncludeTaskUsd -IncludeFrames -EncodeVideo
 ```
 
-输出：
+脚本从 `C:\source\.env` 的 `vGPU 3090` 条目读取登录信息；凭据不会写入仓库。
 
-- `outputs/genie_g2_drywall/genie_g2_drywall.usda`：任务场景与官方 G2 的 USD 组合层。
-- `outputs/genie_g2_drywall/genie_g2_drywall_task.usd`：实际在当前 Windows Isaac Sim 4.5 中运行的 PhysX 任务场景。
-- `outputs/genie_g2_drywall/trajectory.csv`：石膏板、气钉枪、接触压力和固定点事件轨迹。
-- `outputs/genie_g2_drywall/drywall_installation.mp4`：6 个固定点完成的演示视频。
-- `outputs/genie_g2_drywall/run_summary.json`：运行配置和限制记录。
+## 仿真边界
 
-## 当前环境边界
+官方 G2 已在 vGPU Isaac Sim 5.1 中成功加载为 46-DOF articulation，并完成从起始位走到
+石膏板前、双臂进入工作姿态、按 0..5 顺序覆盖 6 个固定点和原生 RTX 帧渲染。真实钉子穿透、
+石膏板材料破坏、FEM、全身控制闭环和 ROS 2 实时桥接仍需单独验证。D415 目前由 Isaac Sim
+相机替代，后续再加入其内参、噪声和深度格式映射。
 
-当前机器是 Windows + Isaac Sim 4.5 + RTX 3070 8 GB。官方 G2 高分辨率视觉/PhysX payload 在该组合下会触发 RTX TLAS 显存预算和 Windows access violation，因此当前运行阶段使用低面数 G2 代理完成 PhysX 任务；`genie_g2_drywall.usda` 保留官方 G2 引用，适合在 Genie Sim 官方推荐的 Linux/Isaac Sim 5.1 环境打开并继续启用全身物理。
-
-这意味着当前视频是“Isaac Sim 轨迹和 PhysX 任务的证据视频”，不是 Isaac Sim Replicator 原生逐帧渲染视频。USD 中仍有 `/World/RenderCamera`，后续切换到稳定的 Isaac Sim 5.1/Linux 图形环境后可以用该相机进行原生 RGB/深度渲染。
-
-`C:\source\ExternalCalibration` 未被修改。D415 也没有参与本阶段；后续只需把 D415 的标定和传感器参数映射到 Isaac Sim 相机即可。
+`C:\source\ExternalCalibration` 未被修改。

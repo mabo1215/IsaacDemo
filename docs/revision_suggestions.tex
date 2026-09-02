@@ -50,9 +50,9 @@
   \rule{\linewidth}{1pt}\\[4pt]
   \begin{tabular}{ll}
     \textbf{Project:} & Isaac Sim + Python + ROS 2 + Genie Sim G2 \\
-    \textbf{Environment:} & Windows 11, Isaac Sim 4.5, RTX 3070 8 GB \\
+    \textbf{Environment:} & vGPU 3090 Linux, Isaac Sim 5.1; local Windows 11 is authoring host \\
     \textbf{Status date:} & 2026-09-02 \\
-    \textbf{Phase:} & Phase 1 demo complete; Phase 2 integration pending \\
+    \textbf{Phase:} & Native G2 task demo complete; ROS 2/camera integration pending \\
   \end{tabular}\\[4pt]
   \rule{\linewidth}{1pt}
 \end{center}
@@ -60,16 +60,16 @@
 \section{Executive Status}
 
 \begin{statusbox}{Current conclusion}
-The first reproducible task demonstration is complete. Isaac Sim executes the wall,
+The reproducible vGPU task demonstration is complete. Isaac Sim executes the wall,
 stud, drywall board, pneumatic nail-gun proxy, collision geometry, and six fastening
-events for 360 frames. The official G2 USD is available and referenced by the exported
-composition layer, but the current Windows Isaac Sim 4.5 pass uses a low-cost proxy
-because the high-resolution G2 payload exceeds the available RTX/TLAS budget.
+events for 600 frames. The official G2 USD is loaded natively as a 46-DOF articulation
+in Isaac Sim 5.1 on the vGPU 3090; the scripted root trajectory walks it to the board,
+the arms enter a working pose, and the tool visits fastening points 0 through 5.
 \end{statusbox}
 
-The current MP4 is a trajectory evidence video generated from the Isaac Sim log. It is
-not a native Replicator frame sequence. The USD deliverable contains
-\texttt{/World/RenderCamera} for a later native rendering pass.
+The current MP4 is encoded from the native RTX/Replicator RGB frame sequence rendered
+on the vGPU. The USD deliverable contains \texttt{/World/RenderCamera} and the official
+G2 visual, collision and sensor payload references.
 
 \section{Completed Work}
 
@@ -78,9 +78,9 @@ not a native Replicator frame sequence. The USD deliverable contains
   \item Built and checked the Genie Sim ROS 2 workspace path.
   \item Implemented a self-contained PhysX construction scene with wall, studs,
         drywall, tool, collision geometry, and fastening events.
-  \item Produced a 360-frame run with 6/6 fastening points triggered.
+  \item Produced a 600-frame run with fastening points 0--5 triggered in order.
   \item Exported the task USD, G2 composition layer, trajectory CSV, summary JSON,
-        and a 12-second H.264 video at 960$\times$540 and 30 FPS.
+        and a 20-second H.264 video at 640$\times$360 and 30 FPS.
   \item Kept RealSense D415 out of the first phase; no physical camera is required
         for the current simulation path.
 \end{itemize}
@@ -91,13 +91,13 @@ not a native Replicator frame sequence. The USD deliverable contains
 \toprule
 \textbf{Priority} & \textbf{Action} & \textbf{Acceptance evidence} \\
 \midrule
-P0 & Run the official G2 asset in Linux with Isaac Sim 5.1 and Genie Sim. &
+Done & Run the official G2 asset in Linux with Isaac Sim 5.1 and Genie Sim. &
      The real \texttt{/World/GenieG2} prim loads without a warm-start crash and its
-     articulation is initialized. \\
+     46-DOF articulation is initialized on the vGPU 3090. \\
 P0 & Connect G2 whole-body control and ROS 2 joint state/command topics. &
      A recorded ROS 2 command changes G2 joint state and the command/state loop is
      reproducible. \\
-P1 & Replace the trajectory evidence renderer with Isaac Sim Replicator capture. &
+Done & Replace the trajectory evidence renderer with Isaac Sim Replicator capture. &
      The MP4 is generated from \texttt{/World/RenderCamera} RGB frames and the
      robot appearance is the official G2 model. \\
 P1 & Add simulated RGB/depth camera data before physical D415 integration. &
@@ -124,22 +124,22 @@ P2 & Improve fastening contact and material model. &
 
 \section{Reproducibility Evidence}
 
-The following files are the primary evidence for Phase 1:
+The following files are the primary evidence for the vGPU-backed G2 phase:
 
 \begin{itemize}[leftmargin=2em]
-  \item \url{outputs/genie_g2_drywall/genie_g2_drywall.usda}
-  \item \url{outputs/genie_g2_drywall/genie_g2_drywall_task.usd}
-  \item \url{outputs/genie_g2_drywall/trajectory.csv}
-  \item \url{outputs/genie_g2_drywall/run_summary.json}
-  \item \url{outputs/genie_g2_drywall/drywall_installation.mp4}
-  \item \url{scripts/run_genie_g2_demo.ps1}
-  \item \url{sim/genie_g2_drywall_demo.py}
+  \item \url{outputs/demo/g2_official_drywall/genie_g2_official_drywall.usd}
+  \item \url{outputs/demo/g2_official_drywall/trajectory.csv}
+  \item \url{outputs/demo/g2_official_drywall/run_summary.json}
+  \item \url{outputs/demo/genie_g2_official_drywall_installation.mp4}
+  \item \url{outputs/demo/g2_official_smoke/rgb_0000.png}
+  \item \url{scripts/sync_vgpu_outputs.ps1}
+  \item \url{sim/genie_g2_official_drywall_demo.py}
 \end{itemize}
 
 The standard command is:
 
 \begin{verbatim}
-.\scripts\run_genie_g2_demo.ps1
+.\scripts\sync_vgpu_outputs.ps1 -IncludeTaskUsd
 \end{verbatim}
 
 The shared directory \url{C:/source/ExternalCalibration} is outside the project
@@ -147,11 +147,9 @@ change set and remains unmodified.
 
 \section{Recommended Next Review}
 
-The next review should be performed after the official G2 is initialized in Linux.
-It should compare: (i) real G2 versus proxy geometry, (ii) native Isaac RGB/depth
-frames versus trajectory evidence, (iii) ROS 2 command/state latency, and (iv) task
-success and contact-force metrics. D415 should be evaluated after the simulated
-camera contract is stable, rather than being used to diagnose the current G2/USD
-compatibility issue.
+The next review should focus on the deferred integration work. It should compare:
+(i) native Isaac RGB/depth frames versus trajectory evidence, (ii) ROS 2 command/state
+latency, (iii) task success and contact-force metrics, and (iv) simulated D415 output
+against the eventual physical camera contract.
 
 \end{document}

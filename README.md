@@ -16,6 +16,7 @@ sim/humanoid_drywall_demo.py                 Isaac Sim 场景、PhysX 仿真和�
 ros2_ws/src/isaac_drywall_demo/              ROS 2 控制节点与话题契约
 tools/render_evidence_video.py                根据仿真轨迹生成稳定的 MP4 证据视频
 tools/encode_video.py                         PNG 序列转 MP4 的备用工具
+scripts/sync_vgpu_outputs.ps1                 从 vGPU 3090 同步官方 G2 输出
 scripts/install_ubuntu2204_wsl.ps1           导入 Ubuntu 22.04 WSL2
 scripts/install_ros2_humble.sh                安装 ROS 2 Humble 并构建工作区
 scripts/run_demo.ps1                          一键运行仿真并生成视频
@@ -31,24 +32,27 @@ WSL 根目录: C:\source\IsaacDemo\third_party\wsl\IsaacUbuntu2204
 
 ## 运行
 
-在 PowerShell 中执行：
-
-```powershell
-$env:OMNI_KIT_ACCEPT_EULA = 'YES'
-$env:ISAAC_SIM_ROOT = 'C:\source\IsaacDemo\third_party\isaac-sim-4.5.0'
-.\scripts\run_demo.ps1
-```
-
-默认流程会运行 360 帧（约 12 秒），生成：
+官方 G2 任务在 vGPU 3090 的 Linux + Isaac Sim 5.1 环境中运行；本地只负责同步结果：
 
 ```text
-outputs/drywall_installation.usd
-outputs/run_summary.json
-outputs/trajectory.csv
-outputs/drywall_installation.mp4
+outputs/demo/genie_g2_official_drywall_installation.mp4
+outputs/demo/g2_official_drywall/run_summary.json
+outputs/demo/g2_official_drywall/trajectory.csv
+outputs/demo/g2_official_drywall/genie_g2_official_drywall.usd
 ```
 
-视频包含石膏板、墙体、木龙骨、人形机器人、气动钉枪、固定点、碰撞状态、接触力/工具压力、已安装钉子和阶段状态。石膏板与钉子采用设计文档规定的事件模型，不宣称 FEM 材料破坏仿真。
+同步命令：
+
+```powershell
+.\scripts\sync_vgpu_outputs.ps1 -IncludeTaskUsd
+```
+
+需要同步原生 PNG 帧并编码视频时追加 `-IncludeFrames -EncodeVideo`。
+
+`scripts/run_demo.ps1` 和 `scripts/run_genie_g2_demo.ps1` 保留为 Windows 兼容性测试入口，
+不作为官方 G2 vGPU 结果的生成入口。
+
+视频包含石膏板、墙体、木龙骨、官方 Genie G2、气动钉枪、固定点、碰撞状态、接触力/工具压力、已安装钉子和阶段状态；G2 从起始位走到工作位后按 0..5 依次执行 6 个点。石膏板与钉子采用设计文档规定的事件模型，不宣称 FEM 材料破坏仿真。
 
 ## ROS 2 控制
 

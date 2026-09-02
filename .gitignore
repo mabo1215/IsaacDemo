@@ -386,6 +386,10 @@ venv/
 .pytest_cache/
 third_party/
 
+# Local credentials and environment files
+.env
+*.env
+
 # ROS 2 workspace build products (source under ros2_ws/src is committed)
 ros2_ws/build/
 ros2_ws/install/
