@@ -8,12 +8,12 @@
   "joint_count": 46,
   "camera_prim": "/World/RenderCamera",
   "physics": "Isaac Sim PhysX; official G2 collision payload plus wall/board/tool collision geometry",
-  "control_model": "deterministic drywall placement + pneumatic fastener event model",
+  "control_model": "deterministic two-hand drywall handling + reusable pneumatic fastener event model",
   "ros2_runtime": false,
   "d415_required": false,
-  "frames_requested": 600,
+  "frames_requested": 800,
   "fps": 30,
-  "motion_model": "column-major ground-point base trajectory (lower+upper per column) plus official G2 joint-position targets; outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability",
+  "motion_model": "two-hand pickup/lift/carry/place prelude followed by the validated column-major ground-point base trajectory (lower+upper per column); official G2 joint-position targets, outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability",
   "drive_attributes_configured": 138,
   "robot_gravity_disabled": true,
   "arm_position_drive": {
@@ -33,6 +33,40 @@
     -0.32,
     0.04
   ],
+  "board_handling": {
+    "pickup_position": [
+      -2.8,
+      -2.55,
+      1.3
+    ],
+    "lift_position": [
+      -2.8,
+      -2.55,
+      1.62
+    ],
+    "carry_position": [
+      -1.9,
+      -0.55,
+      1.55
+    ],
+    "place_position": [
+      -0.1,
+      0.28,
+      1.45
+    ],
+    "pickup_robot_position": [
+      -2.8,
+      -2.9,
+      0.04
+    ],
+    "duration_s": 10.0,
+    "grasped_by": "official G2 left/right grippers via direct joint-position pose model",
+    "released_before_tool_grasp": true
+  },
+  "reused_nailing_trajectory": true,
+  "nailing_reference": "validated G2 v30 column-major six-point lower+upper trajectory",
+  "nailing_phase_start_s": 11.5,
+  "nailing_reference_duration_s": 15.0,
   "ground_work_positions": [
     [
       -1.7999999999999998,
@@ -93,7 +127,12 @@
     ]
   ],
   "state_durations_s": {
-    "walk_to_drywall": 3.5,
+    "walk_to_board": 2.0,
+    "align_to_drywall": 1.5,
+    "grasp_drywall": 1.5,
+    "lift_drywall": 1.5,
+    "carry_drywall": 2.3,
+    "place_drywall": 1.2,
     "align_and_grasp_tool": 1.5,
     "per_fastener": 2.5
   },
@@ -106,6 +145,6 @@
     4,
     5
   ],
-  "native_render_frames": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_columnwise_physical_root_v30/frames",
-  "task_usd": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_columnwise_physical_root_v30/genie_g2_official_drywall.usd"
+  "native_render_frames": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_board_to_nails_v32/frames",
+  "task_usd": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_board_to_nails_v32/genie_g2_official_drywall.usd"
 }

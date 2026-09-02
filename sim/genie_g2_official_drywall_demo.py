@@ -1,10 +1,10 @@
-"""Isaac Sim RTX demo: official AgiBot Genie G2 installs drywall.
+"""Isaac Sim RTX demo: official AgiBot Genie G2 lifts, places, and installs drywall.
 
 This Linux/Isaac Sim 5.1 entry point is intentionally separate from the
 Windows compatibility demo.  It loads the official GenieSimAssets G2 USD
-directly, keeps the drywall/fastener event model deterministic, and records
-the scene with Isaac Sim Replicator so the resulting MP4 is a native RTX
-render rather than a host-side diagram.
+directly, keeps the board-handling and fastener event model deterministic, and
+records the scene with Isaac Sim Replicator so the resulting MP4 is a native
+RTX render rather than a host-side diagram.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from isaacsim.simulation_app import SimulationApp
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--headless', action='store_true')
-    parser.add_argument('--frames', type=int, default=int(os.environ.get('ISAAC_DEMO_FRAMES', '180')))
+    parser.add_argument('--frames', type=int, default=int(os.environ.get('ISAAC_DEMO_FRAMES', '800')))
     parser.add_argument('--fps', type=int, default=30)
     parser.add_argument(
         '--output',
@@ -221,6 +221,40 @@ def update_held_tool(
     return nozzle_pos
 
 
+def set_tool_rest(
+    head,
+    handle,
+    nozzle,
+    rest: tuple[float, float, float] = (-5.0, -4.0, -2.0),
+) -> tuple[float, float, float]:
+    """Hide the nail gun until the board has been released.
+
+    The gun is a visual/kinematic task prop.  Keeping it offstage during the
+    two-hand board operation makes the recorded trajectory unambiguous and
+    avoids showing a tool floating beside the robot before grasping it.
+    """
+    set_translate(head, rest)
+    set_translate(handle, rest)
+    nozzle_pos = (rest[0], rest[1] + 0.16, rest[2] - 0.25)
+    set_translate(nozzle, nozzle_pos)
+    return nozzle_pos
+
+
+def set_board_grips(
+    left,
+    right,
+    board_pos: tuple[float, float, float],
+    visible: bool,
+) -> None:
+    """Show two small grip pads on the board while the G2 is carrying it."""
+    if not visible:
+        set_translate(left, (-5.0, -4.0, -2.0))
+        set_translate(right, (-5.0, -4.0, -2.0))
+        return
+    set_translate(left, (board_pos[0] - 1.05, board_pos[1] - 0.08, board_pos[2]))
+    set_translate(right, (board_pos[0] + 1.05, board_pos[1] - 0.08, board_pos[2]))
+
+
 def hand_reference(robot_pos: tuple[float, float, float]) -> tuple[float, float, float]:
     """Approximate the official G2 right gripper in the selected work pose."""
     return (robot_pos[0] + 0.60, robot_pos[1] - 0.30, robot_pos[2] + 1.55)
@@ -258,6 +292,12 @@ def apply_arm_pose(
     basic_values = {
         'folded': (0.0, 0.60, -1.10, 0.65, 0.0, 0.0, 0.0),
         'ready': (0.0, 0.35, -0.90, 0.50, 0.0, 0.0, 0.0),
+        # Paired-arm poses for the deterministic board-handling phase.
+        'board_approach': (0.0, 0.52, -0.86, 0.48, 0.0, 0.0, 0.0),
+        'board_grasp': (0.0, 0.68, -0.98, 0.58, 0.0, 0.0, 0.0),
+        'board_lift': (0.0, 0.54, -0.76, 0.42, 0.0, 0.0, 0.0),
+        'board_carry': (0.0, 0.46, -0.68, 0.36, 0.0, 0.0, 0.0),
+        'board_place': (0.0, 0.35, -0.90, 0.50, 0.0, 0.0, 0.0),
     }
     if pose in basic_values:
         values = basic_values[pose]
@@ -310,7 +350,12 @@ def set_controlled_joint_pose(
 ) -> None:
     target = base_positions.copy()
     apply_arm_pose(target, joint_names, arm_pose, active_index)
-    gripping = arm_pose == 'ready' or arm_pose.startswith('working') or arm_pose.startswith('press_')
+    gripping = (
+        arm_pose == 'ready'
+        or arm_pose.startswith('working')
+        or arm_pose.startswith('press_')
+        or arm_pose.startswith('board_')
+    )
     grip_value = 0.22 if gripping else 0.0
     # The official asset uses mimic joints for the inner fingers.  Only target
     # the outer drive; writing both members of the mimic pair can destabilize
@@ -451,6 +496,22 @@ def main() -> None:
         looks['nozzle'],
         collision=False,
     )
+    board_grip_l = box(
+        stage,
+        '/World/DrywallGripLeft',
+        (0.12, 0.14, 0.28),
+        (-5.0, -4.0, -2.0),
+        looks['tool'],
+        collision=False,
+    )
+    board_grip_r = box(
+        stage,
+        '/World/DrywallGripRight',
+        (0.12, 0.14, 0.28),
+        (-5.0, -4.0, -2.0),
+        looks['tool'],
+        collision=False,
+    )
 
     # Load the actual AgiBot Genie G2 asset, including its visual, PhysX and sensor payloads.
     robot_path = '/World/GenieG2'
@@ -537,11 +598,18 @@ def main() -> None:
     writer.initialize(output_dir=str(frames_dir), rgb=True)
     writer.attach([render_product])
 
-    # Keep the board on the wall for the whole demonstration.  The target
-    # markers and installed nails use the board-facing surface, so perspective
-    # cannot make them appear above/below the board as in the previous run.
+    # The board starts upright on the floor, is carried by the two official G2
+    # grippers, and ends on the studs.  Target markers are defined in board
+    # local coordinates so they travel with the board during the pickup/carry
+    # phase and land exactly on the same six points used by the nail phase.
     board_pos = (-0.1, 0.28, 1.45)
-    set_translate(board, board_pos)
+    board_pickup_pos = (-2.8, -2.55, 1.30)
+    board_lift_pos = (-2.8, -2.55, 1.62)
+    board_carry_pos = (-1.90, -0.55, 1.55)
+    board_pickup_robot_pos = (-2.8, -2.90, 0.04)
+    set_translate(board, board_pickup_pos)
+    set_board_grips(board_grip_l, board_grip_r, board_pickup_pos, False)
+    set_tool_rest(gun, tool_handle, nozzle)
     nail_points = [
         (-1.20, 1.15),
         (-1.20, 1.85),
@@ -551,16 +619,21 @@ def main() -> None:
         (1.20, 1.85),
     ]
     target_y = 0.235
+    board_local_points = [
+        (x - board_pos[0], z - board_pos[2]) for x, z in nail_points
+    ]
+    board_markers = []
     for index, (x, z) in enumerate(nail_points):
-        cylinder(
+        marker = cylinder(
             stage,
             f'/World/FastenerTarget_{index}',
             0.055,
             0.015,
-            (x, target_y, z),
+            (board_pickup_pos[0], board_pickup_pos[1] - 0.055, board_pickup_pos[2]),
             looks['nail'],
             collision=False,
         )
+        board_markers.append(marker)
 
     # Each nail point has a corresponding ground work position.  The right
     # gripper reference is about +0.60 m in world X from the root at yaw 90°,
@@ -570,32 +643,72 @@ def main() -> None:
     installed: list[int] = []
     trajectory: list[dict[str, object]] = []
     total_duration = args.frames / float(args.fps)
-    approach_duration = min(3.5, max(2.5, total_duration * 0.18))
-    ready_duration = min(1.5, max(1.0, total_duration * 0.08))
-    fastening_start = approach_duration + ready_duration
-    fastening_duration = max(0.8, (total_duration - fastening_start) / len(nail_points))
+    # The fastening segment intentionally keeps the validated v30 timing and
+    # point order.  The new board segment is a fixed prelude, so its recorded
+    # time can be mapped directly to the old nailing trajectory.
+    board_handling_duration = 10.0
+    tool_ready_duration = 1.5
+    fastening_start = board_handling_duration + tool_ready_duration
+    fastening_duration = 2.5
     wheel_distance = 0.0
 
     try:
         for frame in range(max(1, args.frames)):
             t = frame / float(args.fps)
-            if t < approach_duration:
-                progress = smoothstep(t / approach_duration)
-                robot_pos = lerp(robot_start, robot_work, progress)
-                gun_pos = hand_reference(robot_pos)
-                state = 'walk_to_drywall'
-                active_index = -1
-                active_local = 0.0
+            board_grasped = False
+            tool_grasped = False
+            active_index = -1
+            active_local = 0.0
+            board_pose = board_pickup_pos
+
+            if t < 2.0:
+                progress = smoothstep(t / 2.0)
+                robot_pos = lerp(robot_start, board_pickup_robot_pos, progress)
+                state = 'walk_to_board'
                 arm_pose = 'folded'
-                wheel_distance += math.dist(robot_start, robot_work) / max(1, int(approach_duration * args.fps))
+                wheel_distance += math.dist(robot_start, board_pickup_robot_pos) / max(1, int(2.0 * args.fps))
+            elif t < 3.5:
+                robot_pos = board_pickup_robot_pos
+                state = 'align_to_drywall'
+                arm_pose = 'board_approach'
+            elif t < 5.0:
+                robot_pos = board_pickup_robot_pos
+                state = 'grasp_drywall'
+                arm_pose = 'board_grasp'
+                board_grasped = True
+            elif t < 6.5:
+                robot_pos = board_pickup_robot_pos
+                progress = smoothstep((t - 5.0) / 1.5)
+                board_pose = lerp(board_pickup_pos, board_lift_pos, progress)
+                state = 'lift_drywall'
+                arm_pose = 'board_lift'
+                board_grasped = True
+            elif t < 8.8:
+                progress = smoothstep((t - 6.5) / 2.3)
+                robot_pos = lerp(board_pickup_robot_pos, robot_work, progress)
+                board_pose = lerp(board_lift_pos, board_carry_pos, progress)
+                state = 'carry_drywall'
+                arm_pose = 'board_carry'
+                board_grasped = True
+                wheel_distance += math.dist(board_pickup_robot_pos, robot_work) / max(1, int(2.3 * args.fps))
+            elif t < board_handling_duration:
+                robot_pos = robot_work
+                progress = smoothstep((t - 8.8) / 1.2)
+                board_pose = lerp(board_carry_pos, board_pos, progress)
+                state = 'place_drywall'
+                arm_pose = 'board_place'
+                board_grasped = True
             elif t < fastening_start:
                 robot_pos = robot_work
-                gun_pos = hand_reference(robot_pos)
+                board_pose = board_pos
                 state = 'align_and_grasp_tool'
-                active_index = -1
-                active_local = 0.0
                 arm_pose = 'ready'
+                tool_grasped = True
             else:
+                # Reuse the validated v30 nailing trajectory: move the base
+                # by column, complete lower+upper at one ground point, then
+                # extend the arm and fire the tool at the board marker.
+                board_pose = board_pos
                 elapsed = t - fastening_start
                 active_index = min(len(nail_points) - 1, int(elapsed / fastening_duration))
                 active_local = min(1.0, (elapsed - active_index * fastening_duration) / fastening_duration)
@@ -636,6 +749,7 @@ def main() -> None:
                         arm_pose = f'press_{active_index}'
                     else:
                         state = 'hold_fastener'
+                tool_grasped = True
                 if active_local >= 0.72 and active_index not in installed:
                     installed.append(active_index)
                     cylinder(
@@ -652,9 +766,14 @@ def main() -> None:
                 state = 'task_complete'
                 robot_pos = robot_work_positions[-1]
                 gun_pos = hand_reference(robot_pos)
+                board_pose = board_pos
+                board_grasped = False
+                tool_grasped = True
                 active_index = len(nail_points) - 1
                 active_local = 1.0
                 arm_pose = 'ready'
+            elif not tool_grasped:
+                gun_pos = (-5.0, -4.0, -2.0)
 
             set_scripted_root_pose(
                 robot_prim,
@@ -665,7 +784,17 @@ def main() -> None:
                 articulation_reference_orientation,
                 robot_start,
             )
-            set_translate(board, board_pos)
+            set_translate(board, board_pose)
+            set_board_grips(board_grip_l, board_grip_r, board_pose, board_grasped)
+            for marker, (local_x, local_z) in zip(board_markers, board_local_points):
+                set_translate(
+                    marker,
+                    (
+                        board_pose[0] + local_x,
+                        board_pose[1] + (target_y - board_pos[1]),
+                        board_pose[2] + local_z,
+                    ),
+                )
 
             if base_joint_positions is not None and joint_names:
                 set_controlled_joint_pose(
@@ -678,15 +807,22 @@ def main() -> None:
                 g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
 
             fastening = state in ('press_fastener', 'hold_fastener')
+            board_contact = state in (
+                'grasp_drywall',
+                'lift_drywall',
+                'carry_drywall',
+                'place_drywall',
+            )
             pressure = 1.0 if fastening else (0.25 if state == 'move_to_fastener' else 0.0)
             planned_nozzle_pos = (gun_pos[0], gun_pos[1] + 0.16, gun_pos[2] - 0.25)
             ground_target = robot_work_positions[max(0, active_index)]
             trajectory.append({
                 'frame': frame,
                 'time_s': round(t, 4),
-                'board_x': board_pos[0],
-                'board_y': board_pos[1],
-                'board_z': board_pos[2],
+                'phase': 'board_handling' if t < board_handling_duration else 'nailing',
+                'board_x': board_pose[0],
+                'board_y': board_pose[1],
+                'board_z': board_pose[2],
                 'gun_x': gun_pos[0],
                 'gun_y': gun_pos[1],
                 'gun_z': gun_pos[2],
@@ -707,11 +843,20 @@ def main() -> None:
                 'active_fastener_index': active_index,
                 'state': state,
                 'arm_pose': arm_pose,
-                'collision_active': int(state in ('press_fastener', 'hold_fastener')),
-                'contact_force_n': 120.0 if pressure == 1.0 else (35.0 if fastening else 0.0),
+                'collision_active': int(board_contact or fastening),
+                'contact_force_n': (
+                    120.0 if pressure == 1.0
+                    else (80.0 if board_contact else (35.0 if fastening else 0.0))
+                ),
                 'tool_pressure': pressure,
                 'nails_installed': len(installed),
-                'tool_grasped': int(state not in ('walk_to_drywall',)),
+                'board_grasped': int(board_grasped),
+                'tool_grasped': int(tool_grasped),
+                'nailing_reference_time_s': round(max(0.0, t - fastening_start), 4),
+                'nailing_reference_frame': (
+                    int(round((t - fastening_start) * args.fps))
+                    if t >= fastening_start else -1
+                ),
                 'robot_label': 'AgiBot Genie G2 (official USD)',
             })
 
@@ -744,14 +889,17 @@ def main() -> None:
             if base_joint_positions is not None and joint_names:
                 g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
             simulation_app.update()
-            hand_pos = hand_reference(robot_pos)
-            nozzle_pos = update_held_tool(
-                gun,
-                tool_handle,
-                nozzle,
-                hand_pos,
-                gun_pos,
-            )
+            if tool_grasped:
+                hand_pos = hand_reference(robot_pos)
+                nozzle_pos = update_held_tool(
+                    gun,
+                    tool_handle,
+                    nozzle,
+                    hand_pos,
+                    gun_pos,
+                )
+            else:
+                nozzle_pos = set_tool_rest(gun, tool_handle, nozzle)
             rep.orchestrator.step(rt_subframes=1)
 
         # Allow the last render write to flush before detaching the writer.
@@ -777,12 +925,12 @@ def main() -> None:
         'joint_count': len(joint_names),
         'camera_prim': camera_path,
         'physics': 'Isaac Sim PhysX; official G2 collision payload plus wall/board/tool collision geometry',
-        'control_model': 'deterministic drywall placement + pneumatic fastener event model',
+        'control_model': 'deterministic two-hand drywall handling + reusable pneumatic fastener event model',
         'ros2_runtime': False,
         'd415_required': False,
         'frames_requested': args.frames,
         'fps': args.fps,
-        'motion_model': 'column-major ground-point base trajectory (lower+upper per column) plus official G2 joint-position targets; outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability',
+        'motion_model': 'two-hand pickup/lift/carry/place prelude followed by the validated column-major ground-point base trajectory (lower+upper per column); official G2 joint-position targets, outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability',
         'drive_attributes_configured': drive_attributes_configured,
         'robot_gravity_disabled': robot_gravity_disabled,
         'arm_position_drive': {
@@ -794,12 +942,31 @@ def main() -> None:
         },
         'robot_start': robot_start,
         'robot_work': robot_work,
+        'board_handling': {
+            'pickup_position': board_pickup_pos,
+            'lift_position': board_lift_pos,
+            'carry_position': board_carry_pos,
+            'place_position': board_pos,
+            'pickup_robot_position': board_pickup_robot_pos,
+            'duration_s': board_handling_duration,
+            'grasped_by': 'official G2 left/right grippers via direct joint-position pose model',
+            'released_before_tool_grasp': True,
+        },
+        'reused_nailing_trajectory': True,
+        'nailing_reference': 'validated G2 v30 column-major six-point lower+upper trajectory',
+        'nailing_phase_start_s': fastening_start,
+        'nailing_reference_duration_s': len(nail_points) * fastening_duration,
         'ground_work_positions': robot_work_positions,
         'robot_yaw_deg': 90.0,
         'fastener_order': nail_points,
         'state_durations_s': {
-            'walk_to_drywall': approach_duration,
-            'align_and_grasp_tool': ready_duration,
+            'walk_to_board': 2.0,
+            'align_to_drywall': 1.5,
+            'grasp_drywall': 1.5,
+            'lift_drywall': 1.5,
+            'carry_drywall': 2.3,
+            'place_drywall': 1.2,
+            'align_and_grasp_tool': tool_ready_duration,
             'per_fastener': fastening_duration,
         },
         'nails_installed': len(installed),
