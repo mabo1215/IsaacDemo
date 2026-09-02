@@ -155,6 +155,77 @@ def set_orient(prim, orientation: Gf.Quatd) -> None:
     xform.AddOrientOp().Set(orientation)
 
 
+def yaw_quaternion(yaw: float) -> Gf.Quatd:
+    return Gf.Quatd(
+        math.cos(yaw / 2.0),
+        Gf.Vec3d(0.0, 0.0, math.sin(yaw / 2.0)),
+    )
+
+
+def set_scripted_root_pose(
+    robot_prim,
+    robot_pos: tuple[float, float, float],
+    robot_yaw: float,
+    articulation: Articulation | None = None,
+    articulation_reference_position: np.ndarray | None = None,
+    articulation_reference_orientation: np.ndarray | None = None,
+    robot_reference_position: tuple[float, float, float] | None = None,
+) -> None:
+    """Keep the imported G2 USD root upright after joint writes.
+
+    The official G2 articulation's PhysX root body is body_link5 inside the
+    imported chain, not the outer ``/World/GenieG2`` Xform. Moving the
+    articulation view root directly to the ground would place the torso at
+    z=0 and collapse the robot. When an initialized view is supplied, its
+    physical root is translated by the same ground delta while retaining its
+    original height and orientation from the official asset.
+    """
+    orientation = yaw_quaternion(robot_yaw)
+    set_translate(robot_prim, robot_pos)
+    set_orient(robot_prim, orientation)
+    if (
+        articulation is not None
+        and articulation_reference_position is not None
+        and articulation_reference_orientation is not None
+        and robot_reference_position is not None
+    ):
+        delta = np.asarray(robot_pos, dtype=np.float32) - np.asarray(
+            robot_reference_position,
+            dtype=np.float32,
+        )
+        articulation.set_world_poses(
+            positions=articulation_reference_position + delta.reshape(1, 3),
+            orientations=articulation_reference_orientation,
+        )
+
+
+def update_held_tool(
+    head,
+    handle,
+    nozzle,
+    hand_pos: tuple[float, float, float],
+    head_pos: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Keep one compact nail gun body attached between hand and nozzle.
+
+    The base walks to each ground work position, so the gun can remain a
+    short held tool.  There is deliberately no long colored proxy chain from
+    the hand to the wall.
+    """
+    set_translate(handle, hand_pos)
+    start = np.asarray(hand_pos, dtype=np.float64)
+    end = np.asarray(head_pos, dtype=np.float64)
+    set_translate(head, tuple((start + end) * 0.5))
+    nozzle_pos = (head_pos[0], head_pos[1] + 0.16, head_pos[2] - 0.25)
+    set_translate(nozzle, nozzle_pos)
+    return nozzle_pos
+
+
+def hand_reference(robot_pos: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Approximate the official G2 right gripper in the selected work pose."""
+    return (robot_pos[0] + 0.60, robot_pos[1] - 0.30, robot_pos[2] + 1.55)
+
+
 def smoothstep(value: float) -> float:
     value = max(0.0, min(1.0, value))
     return value * value * (3.0 - 2.0 * value)
@@ -178,18 +249,47 @@ def apply_arm_pose(
     target: np.ndarray,
     joint_names: list[str],
     pose: str,
+    active_index: int = -1,
 ) -> None:
-    # The official G2 asset has seven revolute joints per arm.  These modest
-    # position targets keep both arms folded/working without relying on an
-    # uncontrolled default drive state.
-    values = {
+    # The official G2 asset has seven revolute joints per arm.  The fastening
+    # poses deliberately sweep the shoulder and elbow as the active point
+    # moves left/centre/right and lower/upper, so the visible arms follow the
+    # held tool instead of staying in one imported T-pose.
+    basic_values = {
         'folded': (0.0, 0.60, -1.10, 0.65, 0.0, 0.0, 0.0),
         'ready': (0.0, 0.35, -0.90, 0.50, 0.0, 0.0, 0.0),
-        # Keep the arms visibly folded around the tool during fastening.  The
-        # imported T-pose is useful as an asset default but is not a working
-        # posture for this task.
-        'working': (0.0, 0.58, -1.05, 0.62, 0.0, 0.0, 0.0),
-    }[pose]
+    }
+    if pose in basic_values:
+        values = basic_values[pose]
+    else:
+        point_index = max(0, active_index)
+        # Fasteners are ordered column-major: lower and upper at the same
+        # ground position are completed before the mobile base moves on.
+        upper_row = point_index % 2 == 1
+        column_offset = point_index // 2
+        pressing = pose.startswith('press_')
+        if upper_row:
+            # Raise the elbow for the upper row; the mobile base already
+            # provides the large horizontal alignment motion.
+            values = (
+                0.0,
+                0.86 + 0.08 * column_offset + (0.04 if pressing else 0.0),
+                -1.28 - 0.08 * column_offset - (0.06 if pressing else 0.0),
+                0.70 + 0.06 * column_offset + (0.04 if pressing else 0.0),
+                0.0,
+                0.0,
+                0.0,
+            )
+        else:
+            values = (
+                0.0,
+                0.48 + 0.10 * column_offset + (0.04 if pressing else 0.0),
+                -0.90 - 0.10 * column_offset - (0.06 if pressing else 0.0),
+                0.52 + 0.08 * column_offset + (0.04 if pressing else 0.0),
+                0.0,
+                0.0,
+                0.0,
+            )
     for side in ('l', 'r'):
         for joint_index, joint_value in enumerate(values, start=1):
             # idx21..27 and idx61..67 are the stable names in the official G2 USD.
@@ -206,33 +306,44 @@ def set_controlled_joint_pose(
     joint_names: list[str],
     base_positions: np.ndarray,
     arm_pose: str,
+    active_index: int = -1,
 ) -> None:
     target = base_positions.copy()
-    apply_arm_pose(target, joint_names, arm_pose)
+    apply_arm_pose(target, joint_names, arm_pose, active_index)
+    gripping = arm_pose == 'ready' or arm_pose.startswith('working') or arm_pose.startswith('press_')
+    grip_value = 0.22 if gripping else 0.0
+    # The official asset uses mimic joints for the inner fingers.  Only target
+    # the outer drive; writing both members of the mimic pair can destabilize
+    # PhysX during the first step.
+    for name in (
+        'idx41_gripper_l_outer_joint1',
+        'idx81_gripper_r_outer_joint1',
+    ):
+        if name in joint_names:
+            target[0, joint_names.index(name)] = grip_value
     articulation.set_joint_positions(target)
     articulation.set_joint_position_targets(target)
     articulation.set_joint_velocities(np.zeros_like(target))
 
 
 def neutralize_joint_drives(stage, robot_path: str) -> int:
-    """Disable unwanted drives but retain gentle position control for both arms.
+    """Disable USD drives; the task writes arm joint positions explicitly.
 
     The official G2 USD contains drives for wheels, body, grippers and arms.
-    Leaving all of them active makes the free root fight the scripted motion;
-    disabling all of them, however, leaves the arms in their imported T-pose.
-    Keep only the seven-joint arm drives active at a conservative gain so the
-    visible G2 can fold its arms while the root pose remains scripted.
+    Their reaction torque can overturn the free-root articulation when the
+    scripted base and upper-row arm poses change.  The per-frame direct joint
+    position writes still animate the official articulation while removing
+    that accumulated drive torque.
     """
     changed = 0
     prefix = robot_path.rstrip('/') + '/'
     for prim in stage.Traverse():
         if not str(prim.GetPath()).startswith(prefix):
             continue
-        is_arm_joint = '_arm_l_joint' in prim.GetName() or '_arm_r_joint' in prim.GetName()
         drive_values = {
-            'drive:angular:physics:stiffness': 1800.0 if is_arm_joint else 0.0,
-            'drive:angular:physics:damping': 180.0 if is_arm_joint else 0.0,
-            'drive:angular:physics:maxForce': 60.0 if is_arm_joint else 0.0,
+            'drive:angular:physics:stiffness': 0.0,
+            'drive:angular:physics:damping': 0.0,
+            'drive:angular:physics:maxForce': 0.0,
             'drive:linear:physics:stiffness': 0.0,
             'drive:linear:physics:damping': 0.0,
             'drive:linear:physics:maxForce': 0.0,
@@ -319,10 +430,18 @@ def main() -> None:
     gun = box(
         stage,
         '/World/PneumaticNailGun',
-        (0.22, 0.28, 0.55),
+        (0.22, 0.58, 0.38),
         (-1.0, -2.1, 1.5),
         looks['tool'],
         kinematic=True,
+    )
+    tool_handle = box(
+        stage,
+        '/World/PneumaticNailGunHandle',
+        (0.16, 0.22, 0.22),
+        (-1.0, -2.1, 1.5),
+        looks['tool'],
+        collision=False,
     )
     nozzle = box(
         stage,
@@ -339,14 +458,14 @@ def main() -> None:
     robot_prim = stage.GetPrimAtPath(robot_path)
     if not robot_prim.IsValid():
         raise RuntimeError(f'G2 reference did not create {robot_path}')
-    robot_start = (-2.8, -3.6, 0.04)
-    robot_work = (-0.1, -1.55, 0.04)
+    robot_start = (-2.8, -3.0, 0.04)
+    # Move close enough that the extended arm and the held tool can reach the
+    # board surface without a disconnected free-floating gun proxy.
+    # The first work position is replaced with the target-specific ground
+    # positions after the six fastening points are declared below.
+    robot_work = (-1.80, -0.32, 0.04)
     robot_yaw = math.pi / 2.0
-    set_translate(robot_prim, robot_start)
-    set_orient(
-        robot_prim,
-        Gf.Quatd(math.cos(robot_yaw / 2.0), Gf.Vec3d(0.0, 0.0, math.sin(robot_yaw / 2.0))),
-    )
+    set_scripted_root_pose(robot_prim, robot_start, robot_yaw)
     print(f'[INFO] Official G2 reference: {robot_usd}')
 
     # Let reference and payloads resolve before querying bounds or creating the render product.
@@ -371,7 +490,10 @@ def main() -> None:
     g2_articulation = Articulation(prim_paths_expr=robot_path, name='genie_g2')
     joint_names: list[str] = []
     base_joint_positions: np.ndarray | None = None
+    articulation_reference_position: np.ndarray | None = None
+    articulation_reference_orientation: np.ndarray | None = None
     articulation_status = 'not_initialized'
+    robot_gravity_disabled = False
     try:
         world.reset()
         g2_articulation.initialize()
@@ -381,6 +503,22 @@ def main() -> None:
         ).copy()
         if base_joint_positions.ndim == 1:
             base_joint_positions = base_joint_positions.reshape(1, -1)
+        articulation_reference_position = np.asarray(
+            g2_articulation.get_world_poses()[0],
+            dtype=np.float32,
+        ).reshape(1, 3).copy()
+        articulation_reference_orientation = np.asarray(
+            g2_articulation.get_world_poses()[1],
+            dtype=np.float32,
+        ).reshape(1, 4).copy()
+        # This Isaac Sim 5.1 Articulation view exposes the multi-articulation
+        # API, so disable gravity for every body and clamp the root 6D velocity
+        # through the view rather than the SingleArticulation convenience API.
+        g2_articulation.set_body_disable_gravity(
+            np.ones((1, g2_articulation.num_bodies), dtype=np.uint8)
+        )
+        g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
+        robot_gravity_disabled = True
         articulation_status = 'initialized'
         print(f'[INFO] G2 articulation initialized with {len(joint_names)} joints')
     except Exception as exc:
@@ -406,10 +544,10 @@ def main() -> None:
     set_translate(board, board_pos)
     nail_points = [
         (-1.20, 1.15),
-        (0.0, 1.15),
-        (1.20, 1.15),
         (-1.20, 1.85),
+        (0.0, 1.15),
         (0.0, 1.85),
+        (1.20, 1.15),
         (1.20, 1.85),
     ]
     target_y = 0.235
@@ -424,13 +562,18 @@ def main() -> None:
             collision=False,
         )
 
+    # Each nail point has a corresponding ground work position.  The right
+    # gripper reference is about +0.60 m in world X from the root at yaw 90°,
+    # so the base walks to x = nail_x - 0.60 before the arm reaches forward.
+    robot_work_positions = [(x - 0.60, -0.32, 0.04) for x, _ in nail_points]
+    robot_work = robot_work_positions[0]
     installed: list[int] = []
     trajectory: list[dict[str, object]] = []
-    approach_duration = min(4.0, max(2.5, args.frames / float(args.fps) * 0.25))
-    ready_duration = min(2.0, max(1.25, args.frames / float(args.fps) * 0.12))
+    total_duration = args.frames / float(args.fps)
+    approach_duration = min(3.5, max(2.5, total_duration * 0.18))
+    ready_duration = min(1.5, max(1.0, total_duration * 0.08))
     fastening_start = approach_duration + ready_duration
-    fastening_duration = max(0.8, (args.frames / float(args.fps) - fastening_start) / len(nail_points))
-    previous_tool = (0.55, -0.25, 1.70)
+    fastening_duration = max(0.8, (total_duration - fastening_start) / len(nail_points))
     wheel_distance = 0.0
 
     try:
@@ -439,7 +582,7 @@ def main() -> None:
             if t < approach_duration:
                 progress = smoothstep(t / approach_duration)
                 robot_pos = lerp(robot_start, robot_work, progress)
-                gun_pos = (robot_pos[0] + 0.55, robot_pos[1] + 0.75, 1.70)
+                gun_pos = hand_reference(robot_pos)
                 state = 'walk_to_drywall'
                 active_index = -1
                 active_local = 0.0
@@ -447,7 +590,7 @@ def main() -> None:
                 wheel_distance += math.dist(robot_start, robot_work) / max(1, int(approach_duration * args.fps))
             elif t < fastening_start:
                 robot_pos = robot_work
-                gun_pos = previous_tool
+                gun_pos = hand_reference(robot_pos)
                 state = 'align_and_grasp_tool'
                 active_index = -1
                 active_local = 0.0
@@ -457,23 +600,43 @@ def main() -> None:
                 active_index = min(len(nail_points) - 1, int(elapsed / fastening_duration))
                 active_local = min(1.0, (elapsed - active_index * fastening_duration) / fastening_duration)
                 x, z = nail_points[active_index]
-                if active_index == 0:
-                    entry = previous_tool
-                else:
-                    previous_x, previous_z = nail_points[active_index - 1]
-                    entry = (previous_x, target_y - 0.10, previous_z + 0.25)
+                current_work = robot_work_positions[active_index]
+                previous_work = (
+                    robot_work
+                    if active_index == 0
+                    else robot_work_positions[active_index - 1]
+                )
                 target = (x, target_y - 0.10, z + 0.25)
-                travel_fraction = smoothstep(min(1.0, active_local / 0.58))
-                gun_pos = lerp(entry, target, travel_fraction)
-                if active_local < 0.58:
-                    state = 'move_to_fastener'
-                elif active_local < 0.72:
-                    state = 'press_fastener'
+                if active_local < 0.28:
+                    # First move the mobile base to the ground point for this
+                    # fastener while the arm keeps the tool close to the body.
+                    robot_pos = lerp(
+                        previous_work,
+                        current_work,
+                        smoothstep(active_local / 0.28),
+                    )
+                    gun_pos = hand_reference(robot_pos)
+                    state = 'walk_to_fastener'
+                    arm_pose = 'ready'
+                elif active_local < 0.38:
+                    robot_pos = current_work
+                    gun_pos = hand_reference(robot_pos)
+                    state = 'align_tool'
+                    arm_pose = 'ready'
                 else:
-                    state = 'hold_fastener'
-                robot_pos = robot_work
-                arm_pose = 'working'
-                if active_local >= 0.64 and active_index not in installed:
+                    robot_pos = current_work
+                    entry = hand_reference(robot_pos)
+                    reach_fraction = smoothstep(min(1.0, (active_local - 0.38) / 0.24))
+                    gun_pos = lerp(entry, target, reach_fraction)
+                    arm_pose = f'working_{active_index}'
+                    if active_local < 0.62:
+                        state = 'move_to_fastener'
+                    elif active_local < 0.72:
+                        state = 'press_fastener'
+                        arm_pose = f'press_{active_index}'
+                    else:
+                        state = 'hold_fastener'
+                if active_local >= 0.72 and active_index not in installed:
                     installed.append(active_index)
                     cylinder(
                         stage,
@@ -487,24 +650,22 @@ def main() -> None:
 
             if t >= fastening_start + len(nail_points) * fastening_duration:
                 state = 'task_complete'
-                robot_pos = robot_work
-                gun_pos = previous_tool
+                robot_pos = robot_work_positions[-1]
+                gun_pos = hand_reference(robot_pos)
                 active_index = len(nail_points) - 1
                 active_local = 1.0
                 arm_pose = 'ready'
 
-            set_translate(robot_prim, robot_pos)
-            set_orient(
+            set_scripted_root_pose(
                 robot_prim,
-                Gf.Quatd(
-                    math.cos(robot_yaw / 2.0),
-                    Gf.Vec3d(0.0, 0.0, math.sin(robot_yaw / 2.0)),
-                ),
+                robot_pos,
+                robot_yaw,
+                g2_articulation if articulation_status == 'initialized' else None,
+                articulation_reference_position,
+                articulation_reference_orientation,
+                robot_start,
             )
             set_translate(board, board_pos)
-            set_translate(gun, gun_pos)
-            nozzle_pos = (gun_pos[0], gun_pos[1] + 0.16, gun_pos[2] - 0.25)
-            set_translate(nozzle, nozzle_pos)
 
             if base_joint_positions is not None and joint_names:
                 set_controlled_joint_pose(
@@ -512,10 +673,14 @@ def main() -> None:
                     joint_names,
                     base_joint_positions,
                     arm_pose,
+                    active_index,
                 )
+                g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
 
             fastening = state in ('press_fastener', 'hold_fastener')
             pressure = 1.0 if fastening else (0.25 if state == 'move_to_fastener' else 0.0)
+            planned_nozzle_pos = (gun_pos[0], gun_pos[1] + 0.16, gun_pos[2] - 0.25)
+            ground_target = robot_work_positions[max(0, active_index)]
             trajectory.append({
                 'frame': frame,
                 'time_s': round(t, 4),
@@ -525,20 +690,28 @@ def main() -> None:
                 'gun_x': gun_pos[0],
                 'gun_y': gun_pos[1],
                 'gun_z': gun_pos[2],
-                'nozzle_x': nozzle_pos[0],
-                'nozzle_y': nozzle_pos[1],
-                'nozzle_z': nozzle_pos[2],
+                'nozzle_x': planned_nozzle_pos[0],
+                'nozzle_y': planned_nozzle_pos[1],
+                'nozzle_z': planned_nozzle_pos[2],
                 'robot_x': robot_pos[0],
                 'robot_y': robot_pos[1],
                 'robot_z': robot_pos[2],
+                'ground_target_x': ground_target[0],
+                'ground_target_y': ground_target[1],
+                'ground_column_index': (active_index // 2) if active_index >= 0 else -1,
+                'ground_row': (
+                    'upper' if active_index >= 0 and active_index % 2 == 1
+                    else ('lower' if active_index >= 0 else 'none')
+                ),
                 'robot_yaw_deg': 90.0,
                 'active_fastener_index': active_index,
                 'state': state,
                 'arm_pose': arm_pose,
-                'collision_active': int(state not in ('walk_to_drywall', 'align_and_grasp_tool')),
+                'collision_active': int(state in ('press_fastener', 'hold_fastener')),
                 'contact_force_n': 120.0 if pressure == 1.0 else (35.0 if fastening else 0.0),
                 'tool_pressure': pressure,
                 'nails_installed': len(installed),
+                'tool_grasped': int(state not in ('walk_to_drywall',)),
                 'robot_label': 'AgiBot Genie G2 (official USD)',
             })
 
@@ -547,13 +720,38 @@ def main() -> None:
             # commanded pose immediately before the render so the official
             # G2 arms cannot be overwritten by the uncontrolled default drive.
             if base_joint_positions is not None and joint_names:
+                g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
                 set_controlled_joint_pose(
                     g2_articulation,
                     joint_names,
                     base_joint_positions,
                     arm_pose,
+                    active_index,
                 )
+                g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
+            # Re-apply the scripted root after the dynamic physics step. The
+            # articulation-level teleport is what prevents roll/pitch drift
+            # when the arm joint targets change during fastening.
+            set_scripted_root_pose(
+                robot_prim,
+                robot_pos,
+                robot_yaw,
+                g2_articulation if articulation_status == 'initialized' else None,
+                articulation_reference_position,
+                articulation_reference_orientation,
+                robot_start,
+            )
+            if base_joint_positions is not None and joint_names:
+                g2_articulation.set_velocities(np.zeros((1, 6), dtype=np.float32))
             simulation_app.update()
+            hand_pos = hand_reference(robot_pos)
+            nozzle_pos = update_held_tool(
+                gun,
+                tool_handle,
+                nozzle,
+                hand_pos,
+                gun_pos,
+            )
             rep.orchestrator.step(rt_subframes=1)
 
         # Allow the last render write to flush before detaching the writer.
@@ -584,16 +782,19 @@ def main() -> None:
         'd415_required': False,
         'frames_requested': args.frames,
         'fps': args.fps,
-        'motion_model': 'controlled base trajectory plus official G2 joint-position targets; root gravity disabled for scripted stability',
+        'motion_model': 'column-major ground-point base trajectory (lower+upper per column) plus official G2 joint-position targets; outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability',
         'drive_attributes_configured': drive_attributes_configured,
+        'robot_gravity_disabled': robot_gravity_disabled,
         'arm_position_drive': {
-            'enabled': True,
-            'stiffness': 1800.0,
-            'damping': 180.0,
-            'max_force': 60.0,
+            'enabled': False,
+            'mode': 'direct articulation joint-position writes after each physics step',
+            'stiffness': 0.0,
+            'damping': 0.0,
+            'max_force': 0.0,
         },
         'robot_start': robot_start,
         'robot_work': robot_work,
+        'ground_work_positions': robot_work_positions,
         'robot_yaw_deg': 90.0,
         'fastener_order': nail_points,
         'state_durations_s': {

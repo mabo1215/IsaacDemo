@@ -17,6 +17,11 @@
 - 使用 Isaac Sim RTX/Replicator 生成 600 张原生 RGB 帧，并同步任务 USD、运行摘要和轨迹到本地 `outputs/demo/`。
 - 修正 `box()` 的 USD 变换顺序；墙体、石膏板和固定点现在处于同一工作平面，不再出现石膏板被抬到固定点上方。
 - 修正运动状态机：G2 根部从起始位平滑走到工作位，双臂进入工作姿态，工具按固定点索引 0..5 依次执行 move/press/hold。
+- 增加按当前固定点变化的官方 G2 双臂关节姿态 `working_0`..`working_5`，并让右夹爪对齐一体化短钉枪握把。
+- 修正长时稳定性：关闭官方 USD 关节驱动，对整机 articulation 禁用重力，每个物理步清零根部 6D 速度，并锁定保留官方高度偏移的物理根姿态；v30 正式 600 帧全程保持站立、底盘水平。
+- 重构任务动作：删除跨场景橙黄色代理连接，G2 依次移动到 3 个列工作位置，在每列完成上下两个钉点，再执行 `align_tool`、`move_to_fastener`、`press_fastener`、`hold_fastener`。
+- 优化换点顺序：改为列优先，每个地面位置连续完成下方和上方两个固定点，再移动到下一列；v30 正式 600 帧验证机器人底盘仅移动 3 个列位置、手臂动作和 6/6 装订事件。
+- 将工具改为夹爪附近的一体化短钉枪模型；v30 正式 600 帧验证机器人站立姿态、底盘水平、底盘换点、手臂动作和 6/6 装订事件。
 - 增加 `scripts/sync_vgpu_outputs.ps1`，后续 vGPU 渲染结果统一从 `C:\source\.env` 的 `vGPU 3090` 条目同步。
 - 保留 `/World/RenderCamera`，本阶段不依赖 RealSense D415。
 - `C:\source\ExternalCalibration` 未修改。
@@ -26,9 +31,9 @@
 
 - `outputs/demo/g2_official_drywall/genie_g2_official_drywall.usd` 是 vGPU Isaac Sim 5.1 导出的任务 USD。
 - `outputs/demo/genie_g2_official_drywall_installation.mp4` 由 vGPU 生成的原生 RTX RGB 帧编码而成，不是旧版 Windows 代理证据视频。
-- 正式视频包含 walk_to_drywall、align_and_grasp_tool、move_to_fastener、press_fastener、hold_fastener 五个状态；6 个固定点的索引 0..5 全部完成。
+- 正式视频包含 walk_to_drywall、align_and_grasp_tool、walk_to_fastener、align_tool、move_to_fastener、press_fastener、hold_fastener 状态；6 个固定点的索引 0..5 全部完成，顺序为每列下/上配对，且 G2 先换地面点位再由右夹爪执行握枪/压枪动作。
 - 本地不长期保留全量 PNG 帧；需要复核原始帧时使用同步脚本的 `-IncludeFrames`。
-- 轨迹控制和气钉事件已实现；真实钉子穿透、材料破坏和 FEM 尚未实现。
+- 地面点位轨迹、按点臂姿态、短钉枪握持视觉耦合和气钉事件已实现；真实刚性夹爪约束、钉子穿透、材料破坏和 FEM 尚未实现。
 
 ## 未完成或部分完成
 

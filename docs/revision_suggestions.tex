@@ -64,7 +64,10 @@ The reproducible vGPU task demonstration is complete. Isaac Sim executes the wal
 stud, drywall board, pneumatic nail-gun proxy, collision geometry, and six fastening
 events for 600 frames. The official G2 USD is loaded natively as a 46-DOF articulation
 in Isaac Sim 5.1 on the vGPU 3090; the scripted root trajectory walks it to the board,
-the arms enter a working pose, and the tool visits fastening points 0 through 5.
+the arm pose changes with the active fastening point, the right gripper carries a
+compact nail-gun model. The base visits three ground columns, completing the lower
+and upper fastening points at each column before moving to the next one; the outer
+root pose remains upright throughout the run.
 \end{statusbox}
 
 The current MP4 is encoded from the native RTX/Replicator RGB frame sequence rendered
@@ -81,6 +84,10 @@ G2 visual, collision and sensor payload references.
   \item Produced a 600-frame run with fastening points 0--5 triggered in order.
   \item Exported the task USD, G2 composition layer, trajectory CSV, summary JSON,
         and a 20-second H.264 video at 640$\times$360 and 30 FPS.
+  \item Added point-dependent official G2 arm poses, a compact gripper-held nail gun,
+        column-major paired ground work positions (lower and upper at each column),
+        and a press phase; the outer root pose remains upright and stable through
+        frame 599.
   \item Kept RealSense D415 out of the first phase; no physical camera is required
         for the current simulation path.
 \end{itemize}
@@ -100,6 +107,10 @@ P0 & Connect G2 whole-body control and ROS 2 joint state/command topics. &
 Done & Replace the trajectory evidence renderer with Isaac Sim Replicator capture. &
      The MP4 is generated from \texttt{/World/RenderCamera} RGB frames and the
      robot appearance is the official G2 model. \\
+Done & Make the G2 arms visibly follow the fastening sequence and grasp the tool. &
+     The trajectory contains paired lower/upper points at three ground columns plus
+     the \texttt{press\_fastener} phase; rendered frames show the compact tool held
+     near the right gripper and the robot remains upright for all 600 frames. \\
 P1 & Add simulated RGB/depth camera data before physical D415 integration. &
      RGB, depth, intrinsics, and frame transforms are recorded with timestamps. \\
 P2 & Improve fastening contact and material model. &
@@ -118,6 +129,9 @@ P2 & Improve fastening contact and material model. &
         NVIDIA library in the current container configuration.
   \item The current G2 demo records \texttt{ros2\_runtime=false}; ROS 2 package setup
         is present, but the live G2 bridge is deferred to the compatible environment.
+  \item The current grasp is a task-level visual coupling: the official articulation
+        joint positions and compact nail-gun proxy are synchronized in the render;
+        it is not yet a validated rigid-gripper constraint or force-controlled grasp.
   \item Nail penetration and board deformation are represented by a deterministic
         event model, not FEM or a validated material-fracture model.
 \end{enumerate}

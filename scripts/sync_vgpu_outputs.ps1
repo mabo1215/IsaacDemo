@@ -2,7 +2,7 @@
 param(
     [string]$EnvFile = '',
     [string]$RemoteOutputRoot = '/root/autodl-tmp/IsaacDemo_g2/outputs',
-    [string]$RunName = 'g2_official_drywall_final',
+    [string]$RunName = 'g2_official_drywall_columnwise_physical_root_v30',
     [string]$LocalRunName = 'g2_official_drywall',
     [string]$VideoName = 'genie_g2_official_drywall_installation.mp4',
     [switch]$IncludeTaskUsd,

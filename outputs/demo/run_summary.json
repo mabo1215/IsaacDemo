@@ -1,0 +1,111 @@
+{
+  "isaac_sim": "5.1.0",
+  "renderer": "RayTracedLighting",
+  "robot": "AgiBot Genie G2",
+  "official_g2_usd": "/root/autodl-tmp/IsaacDemo_g2/third_party/geniesim_assets/robot/G2_omnipicker/robot.usda",
+  "robot_prim": "/World/GenieG2",
+  "g2_articulation": "initialized",
+  "joint_count": 46,
+  "camera_prim": "/World/RenderCamera",
+  "physics": "Isaac Sim PhysX; official G2 collision payload plus wall/board/tool collision geometry",
+  "control_model": "deterministic drywall placement + pneumatic fastener event model",
+  "ros2_runtime": false,
+  "d415_required": false,
+  "frames_requested": 600,
+  "fps": 30,
+  "motion_model": "column-major ground-point base trajectory (lower+upper per column) plus official G2 joint-position targets; outer root and correctly offset physical articulation root locked upright, with gravity disabled for scripted stability",
+  "drive_attributes_configured": 138,
+  "robot_gravity_disabled": true,
+  "arm_position_drive": {
+    "enabled": false,
+    "mode": "direct articulation joint-position writes after each physics step",
+    "stiffness": 0.0,
+    "damping": 0.0,
+    "max_force": 0.0
+  },
+  "robot_start": [
+    -2.8,
+    -3.0,
+    0.04
+  ],
+  "robot_work": [
+    -1.7999999999999998,
+    -0.32,
+    0.04
+  ],
+  "ground_work_positions": [
+    [
+      -1.7999999999999998,
+      -0.32,
+      0.04
+    ],
+    [
+      -1.7999999999999998,
+      -0.32,
+      0.04
+    ],
+    [
+      -0.6,
+      -0.32,
+      0.04
+    ],
+    [
+      -0.6,
+      -0.32,
+      0.04
+    ],
+    [
+      0.6,
+      -0.32,
+      0.04
+    ],
+    [
+      0.6,
+      -0.32,
+      0.04
+    ]
+  ],
+  "robot_yaw_deg": 90.0,
+  "fastener_order": [
+    [
+      -1.2,
+      1.15
+    ],
+    [
+      -1.2,
+      1.85
+    ],
+    [
+      0.0,
+      1.15
+    ],
+    [
+      0.0,
+      1.85
+    ],
+    [
+      1.2,
+      1.15
+    ],
+    [
+      1.2,
+      1.85
+    ]
+  ],
+  "state_durations_s": {
+    "walk_to_drywall": 3.5,
+    "align_and_grasp_tool": 1.5,
+    "per_fastener": 2.5
+  },
+  "nails_installed": 6,
+  "installed_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "native_render_frames": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_columnwise_physical_root_v30/frames",
+  "task_usd": "/root/autodl-tmp/IsaacDemo_g2/outputs/g2_official_drywall_columnwise_physical_root_v30/genie_g2_official_drywall.usd"
+}
